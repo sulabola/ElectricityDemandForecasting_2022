@@ -36,16 +36,15 @@ The notation $NNAR(p,P,k)_m$ indicates a seasonal NNAR model with a single hidde
 
 The Figure below presents a $NNAR(p=5, P=2, k=4)_{m=7}$ model with 5 non-seasonal lags, 2 seasonal lags, 4 neurons in the hidden layer, and a seasonal period of 7.
 
-![NNAR Model](Images/NNAR_Model.png)
+<img src="Images/NNAR_Model.png" alt="NNAR Model" width="500"/>
 
 The Figure below illustrates a typical NNAR Model with inputs of $L$ number of features. The output variable, $y_{t+h}$, depends on $p$ lagged values of the output variable as well as on the values of the features. This model is called the neural network dynamic regression (NNDR) model.
 
-![NNDR Model](Images/NNAR_Model_with_Features.png)
+<img src="Images/NNAR_Model_with_Features.png" alt="NNDR Model" width="500"/>
 
 ##### Prophet Model
 
-Prophet is a time-series forecasting package developed at Facebook [1]. Prophet has three additive components in its forecast model. (1) Trend (growth $g$ over time, linear or nonlinear), (2) seasonality ($s$, within year), cyclicality (across years), and (3) holidays ($h$, irregular breaks).
-
+Prophet is a time-series forecasting package developed at Facebook. Prophet has three additive components in its forecast model. (1) Trend (growth $g$ over time, linear or nonlinear), (2) seasonality ($s$, within year), cyclicality (across years), and (3) holidays ($h$, irregular breaks).
 
 ### Findings
 
@@ -53,7 +52,9 @@ The experimental results show the superiority of the proposed NNDR model over th
 
 ### References
 
-1. Taylor, S. J., & Letham, B. (2018). Forecasting at scale. The American Statistician, 72(1), 37-45.
+1. R. J. Hyndman and G. Athanasopoulos, Forecasting: principles and practice, 3rd edition, OTexts: Melbourne, Australia. OTexts.com/fpp3, 2021.
+2. Taylor, S. J., & Letham, B. (2018). Forecasting at scale. The American Statistician, 72(1), 37-45.
+3. Liang, Y., & Thavaneswaran, A. (2022, June). Long Term Interval Forecasts of Demand using Data-Driven Dynamic Regression Models. In 2022 IEEE 46th Annual Computers, Software, and Applications Conference (COMPSAC) (pp. 250-259). IEEE.
 
 
 
