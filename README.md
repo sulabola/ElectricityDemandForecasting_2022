@@ -28,9 +28,19 @@ y_t  = f (x_{1, t}, \dots x_{L, t}) + \eta_t
 ```
 $(p, d, q)$ is the non-seasonal part of the SARIMA errors $\eta_t$ where $p$ is non-seasonal AR order, $d$ is the degree of non-seasonal differencing involved and $q$ is the non-seasonal MA order. $(P, D, Q)_m$ is the seasonal part of the SARIMA errors where $P, D, Q$ are the seasonal AR order, the degree of seasonal differencing, and the seasonal MA order, respectively. $m$ is the seasonal period. $y_1, \dots, y_n$ is the target series. $\epsilon_t$ are independent and identically distributed (IID) errors with mean 0 and variance $\sigma^2$. $f$ is a function of the $k$ features and $B$ is the differencing operator.
 
-##### Neural Network Dynamic Regression Model
+##### Neural Network Dynamic Regression (NNDR) Model
 
+The neural network autoregressive (NNAR) model is a specialized variant of neural networks designed for time series forecasting. The model predicts future values based on past values. The NNAR model is regarded as a hybrid between traditional ARIMA models and machine learning approaches. Unlike ARIMA, which assumes a linear relationship between past and future values, NNAR can capture non-linear dependencies, making it particularly useful for complex real-world problems where such relationships exist.
 
+The notation $NNAR(p,P,k)_m$ indicates a seasonal NNAR model with a single hidden layer. Here, $p$ is the number of lagged inputs, $P$ is the AR order of the seasonal part, $k$ is the number of nodes in the hidden layer, and $m$ is the seasonal period (daily/weekly).
+
+The Figure below presents a $NNAR(p=5, P=2, k=4)_{m=7}$ model with 5 non-seasonal lags, 2 seasonal lags, 4 neurons in the hidden layer, and a seasonal period of 7.
+
+![NNAR Model](Images/NNAR_Model.png)
+
+The Figure below illustrates a typical NNAR Model with inputs of $L$ number of features. The output variable, $y_{t+h}$, depends on $p$ lagged values of the output variable as well as on the values of the features. This model is called the neural network dynamic regression (NNDR) model.
+
+![NNDR Model](Images/NNAR_Model_with_Features.png)
 
 ##### Prophet Model
 
