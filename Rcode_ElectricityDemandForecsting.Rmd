@@ -1,0 +1,551 @@
+---
+title: 'Electricity Demand Forecasting - Ontario, Canada.'
+author: "Sulalitha and Makhan"
+date: "05/12/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+rm(list=ls(all=TRUE)) # Remove objects from environment
+```
+
+
+```{r}
+library(caret)
+library(MASS)
+library(splines)
+library(mgcv)
+library(gam)
+library(ISLR)
+library(tsibble)
+library(tidyverse)
+library(fpp3)
+library(prophet)
+library(xtable)
+library(sweep)
+library(timetk)
+library(kableExtra)
+```
+
+
+```{r}
+ 
+ont_elec_hourly1 <- read.csv("Demand_Hourly.csv")
+ont_elec_hourly1$Time <- as.POSIXct(ont_elec_hourly1$Time,, "%Y-%m-%d %H:%M:%S")
+ont_elec_hourly1$Demand <- ont_elec_hourly1$Ontario.Demand
+ont_elec_hourly1$Temperature <- ont_elec_hourly1$temperature
+ont_elec_hourly2 <- as_tsibble(ont_elec_hourly1,index = 'Time',key = 'Location')
+
+ont_elec_hourly <- ont_elec_hourly2 %>%
+ 
+  mutate(Day_Type = case_when(
+    Holiday ~ "Holiday",
+    wday(Date) %in% 2:6 ~ "Weekday",
+    TRUE ~ "Weekend"
+  ))
+
+# Observe data
+head(ont_elec_hourly)
+```
+
+
+```{r}
+ont_elec_daily <- ont_elec_hourly %>%
+
+  index_by(Date = date(Time)) %>%
+  summarise(
+    Demand = sum(Demand)/1000,
+    Temperature = max(Temperature),
+    Holiday = any(Holiday)
+  ) %>%
+  mutate(Day_Type = case_when(
+    Holiday ~ "Holiday",
+    wday(Date) %in% 2:6 ~ "Weekday",
+    TRUE ~ "Weekend"
+  ))
+```
+
+
+```{r}
+ont_elec_daily %>%
+  ggplot(aes(x = Temperature, y = Demand, colour = Day_Type)) +
+  geom_point() +
+  labs(y = "Electricity demand (GW)",
+       x = "Maximum daily temperature") + 
+  stat_smooth(method = lm,data = ont_elec_daily,  formula = y ~ poly(x, 3, raw = TRUE))
+   
+```
+
+
+```{r}
+ont_elec_daily %>%
+  pivot_longer(c(Demand, Temperature)) %>%
+  ggplot(aes(x = Date, y = value)) +
+  geom_line() +
+  facet_grid(name ~ ., scales = "free_y") + ylab("")
+```
+
+
+
+```{r}
+
+box_df = ont_elec_daily %>%
+  filter(Date >= "2017-01-01" & Date <= "2021-01-01" ) %>%
+  #filter(day(Time) == 01 ) %>%
+  mutate(month_name = month.abb[month(Date)]
+    
+  )
+ p <- ggplot(box_df, aes(x= reorder(month_name, month(Date)), y= Demand,, fill=month_name)) + 
+ geom_boxplot() #+ theme_classic()
+p +
+  labs(x = "Month", y = "Daily Electricity demand (GW)")
+```
+
+
+```{r}
+nrow(ont_elec_daily)
+train = ont_elec_daily[180:1643,]
+test =  ont_elec_daily[1644:1734,]
+# test_winter = ont_elec_daily[1462:1552,]
+# test_spring = ont_elec_daily[1553:1642,]
+# test_summer = ont_elec_daily[1644:1734,]
+head(test)
+L <- nrow(test)
+```
+
+
+```{r}
+ggplot(train, aes(Temperature, Demand) ) +
+  geom_point() +
+  stat_smooth()
+```
+
+
+
+Compute polynomial regression model:
+
+```{r}
+model <- lm(Demand ~ poly(Temperature, 2, raw = TRUE), data = train )  
+model %>%   summary()
+predictions <- model %>% predict(test)
+# Model performance
+data.frame(
+  RMSE = RMSE(predictions, test$Demand),
+  R2 = R2(predictions, test$Demand)
+)
+
+```
+
+
+```{r}
+Pol_Reg_model <- lm(Demand ~ poly(Temperature, 3, raw = TRUE), data = train ) 
+
+Pol_Reg_model%>%summary()
+
+Pol_Reg_predictions <- Pol_Reg_model %>% predict(test)
+# Model performance
+data.frame(
+  RMSE = RMSE(Pol_Reg_predictions, test$Demand),
+  R2 = R2(Pol_Reg_predictions, test$Demand)
+)
+
+```
+
+
+```{r}
+plot(test$Demand[1:L], col="red", type="l", ylab = "Demand", xlab = "DAY")
+lines(Pol_Reg_predictions, col="blue")
+```
+
+
+## ARIMA
+
+```{r}
+fit <- train %>%
+  model(ARIMA(Demand ~ Temperature  +  I (Temperature^2) + I (Temperature^3) +
+                (Day_Type == "Weekday"))) 
+                
+fit %>% gg_tsresiduals()
+```
+
+
+```{r}
+report(fit)
+```
+
+
+```{r}
+
+fore1 <-  forecast(fit, test)
+
+fore1 %>%
+  autoplot(train)
+  labs(title="Avg Daily electricity demand: Ontario",
+       y="GW")
+```
+
+
+```{r}
+plot(test$Demand[1:L], col="red", type="l", ylab = "Demand", xlab = "DAY")
+lines(fore1$.mean, col="blue")
+```
+
+
+```{r}
+library(xtable)
+xtable(cbind(sqrt(mean((as.numeric(fore1$.mean)-test$Demand[1:L])^2)), mean(abs(as.numeric(fore1$.mean)-test$Demand[1:L]))), digits = 4)
+```
+
+
+```{r}
+# calcualte sign correlation rho
+rho.cal<-function(X){
+  rho.hat<-cor(sign(X-mean(X)), X-mean(X))
+  return(rho.hat)
+}
+```
+
+
+```{r}
+res.arima <- residuals(fit, type = "innovation")$.resid
+signrho <- rho.cal(as.numeric(res.arima))
+fun <- function (x) signrho*(x-1)*beta(x/2,1/2)-2*sqrt(x-2)
+nu<- uniroot(fun, c(2, 100))$root
+nu
+```
+
+
+```{r}
+test_y <- as.numeric(test$Demand[1:L])
+y_pred.a <- as.numeric(fore1$.mean)
+A.a <- matrix(sample(res.arima,size=1000*L,replace=TRUE), L, 1000)
+temp <- sweep(A.a, 1, y_pred.a, "+")
+boot.ci.a <- t(apply(temp, 1, quantile, probs=c(0.025, 0.975)))
+t.ci.a <- cbind(y_pred.a - qt(0.975, df = nu)*sd(res.arima), y_pred.a + qt(0.975, df = nu)*sd(res.arima))
+
+```
+
+
+```{r}
+t = seq(1:length(y_pred.a))
+plot(t, test_y, col="red", type="l",ylim = c(300,470)  , xlab = "Day", ylab = "Demand(GW)")
+lines(t, y_pred.a, col="blue")
+lines(t, t.ci.a[, 1], col = "green")
+lines(t, t.ci.a[, 2], col = "green")
+lines(t, boot.ci.a[, 1], col = "purple", lty = 4)
+lines(t, boot.ci.a[, 2], col = "purple", lty = 4)
+legend("bottomleft", legend=c("y-original", "y-predicted", "ll-t", "ul-t",  "ll-bootstrap", "ul-bootstrap"), horiz = TRUE,
+col=c("red", "blue", "green", "green",  "purple", "purple"), lty=c(1, 1, 1, 1, 4, 4), cex=0.55)
+ 
+```
+
+
+```{r}
+sum(test_y >= t.ci.a[, 1] & test_y <= t.ci.a[, 2])/L
+sum(test_y >= boot.ci.a[, 1] & test_y <= boot.ci.a[, 2])/L
+```
+
+
+
+```{r}
+sweep::sw_glance(fit) %>% 
+  kable("html") %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"), full_width = FALSE)
+```
+
+
+
+## NN Demand, Temperature and Day Type
+
+```{r}
+tz <- vtreat::designTreatmentsZ(ont_elec_daily, c("Day_Type"))
+new_df <- vtreat::prepare(tz, ont_elec_daily, extracols = c("Demand", "Temperature"))
+head(new_df)
+```
+
+
+```{r}
+
+set.seed(1)
+N=nrow(new_df)
+n = seq(1:N)
+s1<-s2<-s3<-s4<-s5<-s6<-c()
+for (t in 1:N){
+  s1[t] <- sin(pi*t/7) 
+  s2[t] <- sin(2*pi*t/7) 
+  s3[t] <- sin(3*pi*t/7)
+  s4[t] <- sin(4*pi*t/7)
+  s5[t] <- sin(5*pi*t/7)
+  s6[t] <- sin(6*pi*t/7)
+  # c1[t] <- cos(pi*t/7)+w[t] 
+  # c2[t] <- cos(2*pi*t/7)+w[t] 
+  # c3[t] <- cos(3*pi*t/7)+w[t]
+  # c4[t] <- cos(4*pi*t/7)+w[t] 
+  # c5[t] <- cos(5*pi*t/7)+w[t] 
+}
+```
+
+
+```{r}
+new_df <- cbind (new_df, s1, s2, s3, s4, s5, s6)
+```
+
+
+```{r}
+train.new = new_df[180:1643,]
+test.new = new_df[1644:1734,]
+head(test.new)
+nrow(test.new)
+
+```
+
+
+```{r}
+library(forecast)
+fit.nn3 <- nnetar(train.new$Demand, xreg =  cbind(train.new$Temperature,(train.new$Temperature)^2,   train.new$Day_Type_catP), lambda="auto", decay = 0.1)
+fit_test_cv <- CVar(train.new$Demand, xreg =  cbind(train.new$Temperature,(train.new$Temperature)^2,   train.new$Day_Type_catP), lambda="auto", decay = 0.1)
+```
+
+
+
+```{r}
+fit.nn3
+```
+
+
+```{r}
+autoplot(fit.nn3$residuals) + xlab("Day") + ylab("") +
+  ggtitle("Residuals from NNAR (29, 16)")
+
+gghistogram(fit.nn3$residuals) + xlab("") + ggtitle("Histogram of residuals")
+
+ggAcf(fit.nn3$residuals) + ggtitle("ACF of residuals")
+
+```
+
+
+```{r}
+fore.nn3 <- forecast::forecast(fit.nn3, xreg =  cbind(test.new$Temperature[1:L],(test.new$Temperature[1:L])^2, test.new$Day_Type_catP[1:L]), PI = TRUE)
+```
+
+
+```{r}
+autoplot(fore.nn3) + xlab("Day") + ylab("Demand") 
+```
+
+
+```{r}
+t = seq(1:length(fore.nn3$mean))
+plot(t, test$Demand[1:L], col="red",  type="l", ylab = "Demand", xlab = "Day")
+lines(t, fore.nn3$mean , col="blue")
+```
+
+
+```{r}
+library(xtable)
+xtable(cbind(sqrt(mean((as.numeric(fore.nn3$mean)-test$Demand[1:L])^2)), mean(abs(as.numeric(fore.nn3$mean)-test$Demand[1:L]))), digits = 4)
+```
+
+
+```{r}
+library(patchwork)
+
+p1 <- autoplot(fore.nn3$residuals) + xlab("Day") + ylab("") +
+  ggtitle("Residuals from NNAR (28, 16)")
+
+p2 <- gghistogram(fore.nn3$residuals) + xlab("") + ggtitle("Histogram of residuals")
+
+p3 <- ggAcf(fore.nn3$residuals) + ggtitle("ACF of residuals")
+
+p4 <- p3+p2
+
+p1
+p4
+```
+
+
+```{r}
+autoplot(fit.nn3$residuals)
+hist(fit.nn3$residuals)
+acf(na.omit(fit.nn3$residuals))
+acf(abs(na.omit(fit.nn3$residuals)))
+acf((na.omit(fit.nn3$residuals))^2)
+```
+
+
+```{r}
+hist(fit_test_cv$residuals)
+acf(na.omit(fit_test_cv$residuals))
+acf(abs(na.omit(fit_test_cv$residuals)))
+acf((na.omit(fit_test_cv$residuals))^2)
+```
+
+
+```{r}
+sweep::sw_glance(fit.nn3) %>% 
+  kable("html") %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"), full_width = FALSE)
+```
+
+
+```{r}
+# compares predicted vs actual values
+sweep::sw_augment(fit.nn3) %>% tail() %>% 
+  kable("html") %>% 
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"), full_width = FALSE)
+```
+
+
+```{r}
+res.full <- fit_test_cv$residuals
+res <- na.omit(res.full)
+```
+
+
+```{r}
+acf(res, 20, plot = FALSE)
+acf(abs(res), 20, plot = FALSE)
+```
+
+
+```{r}
+signrho <- rho.cal(res)
+fun <- function (x) signrho*(x-1)*beta(x/2,1/2)-2*sqrt(x-2)
+nu<- uniroot(fun, c(2, 100))$root
+nu
+```
+
+
+```{r}
+test_y <- as.numeric(test$Demand[1:L])
+y_pred <- as.numeric(fore.nn3$mean)
+A <- matrix(sample(res,size=1000*L,replace=TRUE), L, 1000)
+temp <- sweep(A, 1, y_pred, "+")
+boot.ci <- t(apply(temp, 1, quantile, probs=c(0.025, 0.975)))
+t.ci <- cbind(y_pred - qt(0.975, df = nu)*sd(res), y_pred + qt(0.975, df = nu)*sd(res))
+
+```
+
+
+```{r}
+t = seq(1:length(y_pred))
+plot(t, test_y, col="red", type="l",   xlab = "Day", ylab = "Demand",ylim = c(270,488))
+lines(t, y_pred , col="blue")
+lines(t, t.ci[, 1], col = "green")
+lines(t, t.ci[, 2], col = "green")
+lines(t, boot.ci[, 1], col = "purple", lty = 4)
+lines(t, boot.ci[, 2], col = "purple", lty = 4)
+legend("bottomleft", legend=c("y-original", "y-predicted", "ll-t", "ul-t", "ll-bootstrap", "ul-bootstrap"), horiz = TRUE,
+col=c("red", "blue", "green", "green",  "purple","purple"), lty=c(1, 1, 1, 1, 4, 4), cex=0.55)
+
+```
+
+
+```{r}
+sum(test_y >= t.ci[, 1] & test_y <= t.ci[, 2])/L
+sum(test_y >= boot.ci[, 1] & test_y <= boot.ci[, 2])/L
+```
+
+
+#Prophet
+
+```{r}
+# library(forecast)
+
+##### Prophet Model for demand forecasting
+ history <- data.frame(
+     ds = seq(as.Date('2017-06-29'), as.Date('2021-07-01'), by = 'd'),
+     y = train$Demand)
+      #y =abs((2+sin(1:366/200))*rnorm(366)/10))
+```
+
+
+```{r}
+
+m <- prophet(history)
+    future <- make_future_dataframe(m, periods = 30)
+    forecast <- predict(m, future)
+    #prophet_plot_components(m, forecast)
+    dyplot.prophet(m, forecast)
+#     # tail(forecast,14)
+#     #cross_valid_df <-cross_validation(m,14,"days")
+#     #performance_metrics(cross_valid_df)
+```
+
+
+
+```{r}
+library(fable.prophet)
+library(lubridate)
+train_prophet <- train
+train_prophet <- train_prophet %>%
+ 
+  mutate(
+
+    Working_Day = !Holiday
+    
+  )
+
+test_prophet <- test  %>%
+ 
+  mutate(
+
+    DOW = wday(Date, label = TRUE),
+    Working_Day = !Holiday & !(DOW %in% c("Sat", "Sun")),
+    
+  )
+```
+
+
+
+```{r}
+fit_prophet <- train_prophet  %>%
+  model(
+
+   prophet(Demand ~ Temperature + Working_Day
+ +
+            season(period = "day", order = 10) +
+            season(period = "week", order = 5) +
+            season(period = "year", order = 3))   )
+
+```
+
+
+```{r}
+fit_prophet %>% components() %>% autoplot()
+```
+
+
+```{r}
+ 
+detach("package:forecast", unload = TRUE)
+
+fore_prophet <-  forecast(fit_prophet, test_prophet)
+
+fore_prophet %>%
+  autoplot(train_prophet)
+  labs(title="Avg Daily electricity demand: Ontario",
+       y="GW")
+```
+
+
+```{r}
+
+plot(test_prophet$Demand[1:L], col="red", type="l", ylab = "Demand", xlab = "DAY")
+lines(fore_prophet$.mean, col="blue")
+
+```
+
+
+```{r}
+library(xtable)
+xtable(cbind(sqrt(mean((as.numeric(fore_prophet$.mean)-test_prophet$Demand[1:L])^2)), mean(abs(as.numeric(fore_prophet$.mean)-test_prophet$Demand[1:L]))), digits = 4)
+```
+
